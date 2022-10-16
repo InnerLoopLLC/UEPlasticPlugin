@@ -7,6 +7,7 @@
 #include "PlasticSourceControlOperations.h"
 #include "PlasticSourceControlProjectSettings.h"
 #include "PlasticSourceControlSettings.h"
+#include "PlasticSourceControlShell.h"
 #include "PlasticSourceControlState.h"
 #include "PlasticSourceControlUtils.h"
 #include "SPlasticSourceControlSettings.h"
@@ -58,9 +59,13 @@ void FPlasticSourceControlProvider::Init(bool bForceConnection)
 	{
 		// Execute a 'checkconnection' command to set bServerAvailable based on the connectivity of the server
 		TArray<FString> InfoMessages, ErrorMessages;
-		const bool bCommandSuccessful = PlasticSourceControlUtils::RunCommand(TEXT("checkconnection"), TArray<FString>(), TArray<FString>(), EConcurrency::Synchronous, InfoMessages, ErrorMessages);
-		bServerAvailable = bCommandSuccessful;
-		if (!bCommandSuccessful)
+		TArray<FString> Parameters;
+		if (PlasticSourceControlUtils::GetWorkspaceInfo(BranchName, RepositoryName, ServerUrl, ErrorMessages))
+		{
+			Parameters.Add(FString::Printf(TEXT("--server=%s"), *ServerUrl));
+		}
+		bServerAvailable = PlasticSourceControlUtils::RunCommand(TEXT("checkconnection"), Parameters, TArray<FString>(), EConcurrency::Synchronous, InfoMessages, ErrorMessages);
+		if (!bServerAvailable)
 		{
 			FMessageLog SourceControlLog("SourceControl");
 			for (const FString& ErrorMessage : ErrorMessages)
@@ -93,7 +98,7 @@ void FPlasticSourceControlProvider::CheckPlasticAvailability()
 		bWorkspaceFound = PlasticSourceControlUtils::FindRootDirectory(PathToProjectDir, PathToWorkspaceRoot);
 
 		// Launch the Plastic SCM cli shell on the background to issue all commands during this session
-		bPlasticAvailable = PlasticSourceControlUtils::LaunchBackgroundPlasticShell(PathToPlasticBinary, PathToWorkspaceRoot);
+		bPlasticAvailable = PlasticSourceControlShell::Launch(PathToPlasticBinary, PathToWorkspaceRoot);
 		if (!bPlasticAvailable)
 		{
 			return;
@@ -126,7 +131,7 @@ void FPlasticSourceControlProvider::Close()
 	// clear the cache
 	StateCache.Empty();
 	// terminate the background 'cm shell' process and associated pipes
-	PlasticSourceControlUtils::Terminate();
+	PlasticSourceControlShell::Terminate();
 	// Remove all extensions to the "Source Control" menu in the Editor Toolbar
 	PlasticSourceControlMenu.Unregister();
 	// Unregister Console Commands
@@ -187,13 +192,13 @@ FText FPlasticSourceControlProvider::GetStatusText() const
 	Args.Add(TEXT("WorkspaceName"), FText::FromString(WorkspaceName));
 	Args.Add(TEXT("BranchName"), FText::FromString(BranchName));
 	// Detect special case for a partial checkout (CS:-1 in Gluon mode)!
-	if (-1 != ChangesetNumber)
+	if (IsPartialWorkspace())
 	{
-		Args.Add(TEXT("ChangesetNumber"), FText::FromString(FString::Printf(TEXT("%d  (regular full workspace)"), ChangesetNumber)));
+		Args.Add(TEXT("ChangesetNumber"), FText::FromString(FString::Printf(TEXT("N/A  (Gluon partial workspace)"))));
 	}
 	else
 	{
-		Args.Add(TEXT("ChangesetNumber"), FText::FromString(FString::Printf(TEXT("N/A  (Gluon/partial workspace)"))));
+		Args.Add(TEXT("ChangesetNumber"), FText::FromString(FString::Printf(TEXT("%d  (regular full workspace)"), ChangesetNumber)));
 	}
 	Args.Add(TEXT("UserName"), FText::FromString(UserName));
 	const FString DisplayName = PlasticSourceControlUtils::UserNameToDisplayName(UserName);
@@ -421,6 +426,22 @@ bool FPlasticSourceControlProvider::UsesChangelists() const
 bool FPlasticSourceControlProvider::UsesCheckout() const
 {
 	return GetDefault<UPlasticSourceControlProjectSettings>()->bPromptForCheckoutOnChange;
+}
+
+bool FPlasticSourceControlProvider::UsesFileRevisions() const
+{
+	// Only a partial workspace can sync files individually like Perforce, a regular workspace needs to update completely
+	return IsPartialWorkspace();
+}
+
+TOptional<bool> FPlasticSourceControlProvider::IsAtLatestRevision() const
+{
+	return TOptional<bool>(); // NOTE: used by code in UE5's Status Bar but currently dormant as far as I can tell
+}
+
+TOptional<int> FPlasticSourceControlProvider::GetNumLocalChanges() const
+{
+	return TOptional<int>(); // NOTE: used by code in UE5's Status Bar but currently dormant as far as I can tell
 }
 
 TSharedPtr<IPlasticSourceControlWorker, ESPMode::ThreadSafe> FPlasticSourceControlProvider::CreateWorker(const FName& InOperationName)

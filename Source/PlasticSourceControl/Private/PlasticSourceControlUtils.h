@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "ISourceControlProvider.h"
+#include "ISourceControlProvider.h" // for EConcurrency
 #include "PlasticSourceControlRevision.h"
 
 #include "Runtime/Launch/Resources/Version.h"
@@ -12,27 +12,6 @@ class FPlasticSourceControlChangelistState;
 class FPlasticSourceControlCommand;
 class FPlasticSourceControlState;
 struct FSoftwareVersion;
-
-/**
- * Helper struct for maintaining temporary files for passing to commands
- */
-class FScopedTempFile
-{
-public:
-	/** Constructor - open & write string to temp file */
-	explicit FScopedTempFile(const FString& InText);
-	explicit FScopedTempFile(const FText& InText);
-
-	/** Destructor - delete temp file */
-	~FScopedTempFile();
-
-	/** Get the filename of this temp file - empty if it failed to be created */
-	const FString& GetFilename() const;
-
-private:
-	/** The filename we are writing to */
-	FString Filename;
-};
 
 namespace PlasticSourceControlUtils
 {
@@ -43,17 +22,6 @@ const struct FSoftwareVersion& GetOldestSupportedPlasticScmVersion();
  * Find the path to the Plastic binary: for now relying on the Path to access the "cm" command.
  */
 FString FindPlasticBinaryPath();
-
-/**
- * Launch the Plastic SCM "shell" command to run it in background.
- * @param	InPathToPlasticBinary	The path to the Plastic binary
- * @param	InWorkspaceRoot			The workspace from where to run the command - usually the Game directory
- * @returns true if the command succeeded and returned no errors
- */
-bool LaunchBackgroundPlasticShell(const FString& InPathToPlasticBinary, const FString& InWorkspaceRoot);
-
-/** Terminate the background 'cm shell' process and associated pipes */
-void Terminate();
 
 /**
  * Find the root of the Plastic workspace, looking from the GameDir and upward in its parent directories
@@ -94,6 +62,18 @@ bool GetWorkspaceName(const FString& InWorkspaceRoot, FString& OutWorkspaceName,
 bool GetWorkspaceInformation(int32& OutChangeset, FString& OutRepositoryName, FString& OutServerUrl, FString& OutBranchName, TArray<FString>& OutErrorMessages);
 
 /**
+ * Get Plastic repository name, server URL, and branch name
+ *
+ * Note: this is a local fast variant, not making network call to the server.
+ * 
+ * @param	OutBranchName		Name of the current checked-out branch
+ * @param	OutRepositoryName	Name of the repository of the current workspace
+ * @param	OutServerUrl		URL/Port of the server of the repository
+ * @param	OutErrorMessages	Any errors (from StdErr) as an array per-line
+ */
+bool GetWorkspaceInfo(FString& OutBranchName, FString& OutRepositoryName, FString& OutServerUrl, TArray<FString>& OutErrorMessages);
+
+/**
  * Use the Project Settings to replace Plastic SCM full username/e-mail by a shorter version for display.
  *
  * Used when retrieving the username of a revision, to display in history and content browser asset tooltip.
@@ -103,7 +83,20 @@ bool GetWorkspaceInformation(int32& OutChangeset, FString& OutRepositoryName, FS
 FString UserNameToDisplayName(const FString& InUserName);
 
 /**
- * Run a Plastic command - output is a string TArray.
+ * Run a Plastic command - the result is the output of cm, as a multi-line string.
+ *
+ * @param	InCommand			The Plastic command - e.g. commit
+ * @param	InParameters		The parameters to the Plastic command
+ * @param	InFiles				The files to be operated on
+ * @param	InConcurrency		Is the command running in the background, or blocking the main thread
+ * @param	OutResults			The results (from StdOut) as a multi-line string.
+ * @param	OutErrors			Any errors (from StdErr) as a multi-line string.
+ * @returns true if the command succeeded and returned no errors
+ */
+bool RunCommand(const FString& InCommand, const TArray<FString>& InParameters, const TArray<FString>& InFiles, const EConcurrency::Type InConcurrency, FString& OutResults, FString& OutErrors);
+
+/**
+ * Run a Plastic command - the result is parsed in an array of strings.
  *
  * @param	InCommand			The Plastic command - e.g. commit
  * @param	InParameters		The parameters to the Plastic command
@@ -114,8 +107,6 @@ FString UserNameToDisplayName(const FString& InUserName);
  * @returns true if the command succeeded and returned no errors
  */
 bool RunCommand(const FString& InCommand, const TArray<FString>& InParameters, const TArray<FString>& InFiles, const EConcurrency::Type InConcurrency, TArray<FString>& OutResults, TArray<FString>& OutErrorMessages);
-// Run a Plastic command - output is a string.
-bool RunCommandInternal(const FString& InCommand, const TArray<FString>& InParameters, const TArray<FString>& InFiles, const EConcurrency::Type InConcurrency, FString& OutResults, FString& OutErrors);
 
 /**
  * Run a Plastic "status" command and parse it.

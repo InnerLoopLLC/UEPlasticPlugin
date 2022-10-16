@@ -23,6 +23,7 @@
 #include "Widgets/Notifications/SNotificationList.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Runtime/Launch/Resources/Version.h"
 #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
 #include "Styling/AppStyle.h"
 #else
@@ -34,9 +35,9 @@
 void SPlasticSourceControlSettings::Construct(const FArguments& InArgs)
 {
 #if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
-	FSlateFontInfo Font = FAppStyle::GetFontStyle(TEXT("SourceControl.LoginWindow.Font"));
+	const FSlateFontInfo Font = FAppStyle::GetFontStyle(TEXT("SourceControl.LoginWindow.Font"));
 #else
-	FSlateFontInfo Font = FEditorStyle::GetFontStyle(TEXT("SourceControl.LoginWindow.Font"));
+	const FSlateFontInfo Font = FEditorStyle::GetFontStyle(TEXT("SourceControl.LoginWindow.Font"));
 #endif
 
 	bAutoCreateIgnoreFile = CanAutoCreateIgnoreFile();
@@ -748,7 +749,7 @@ const FString SPlasticSourceControlSettings::GetIgnoreFileName() const
 /** Create a standard "ignore.conf" file with common patterns for a typical Blueprint & C++ project */
 bool SPlasticSourceControlSettings::CreateIgnoreFile() const
 {
-	const FString IgnoreFileContent = TEXT("Binaries\nBuild\nDerivedDataCache\nIntermediate\nSaved\nScript\nenc_temp_folder\n.idea\n.vscode\n.vs\n*.VC.db\n*.opensdf\n*.opendb\n*.sdf\n*.sln\n*.suo\n*.xcodeproj\n*.xcworkspace");
+	const FString IgnoreFileContent = TEXT("Binaries\nBuild\nDerivedDataCache\nIntermediate\nSaved\nScript\nenc_temp_folder\n.idea\n.vscode\n.vs\n.vsconfig\n.ignore\n*.VC.db\n*.opensdf\n*.opendb\n*.sdf\n*.sln\n*.suo\n*.code-workspace\n*.xcodeproj\n*.xcworkspace");
 	return FFileHelper::SaveStringToFile(IgnoreFileContent, *GetIgnoreFileName(), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
 
@@ -763,7 +764,7 @@ TArray<FString> SPlasticSourceControlSettings::GetProjectFiles() const
 	{
 		ProjectFiles.Add(FPaths::ConvertRelativePathToFull(FPaths::GameSourceDir()));
 	}
-	if (bAutoCreateIgnoreFile)
+	if (FPaths::FileExists(GetIgnoreFileName()))
 	{
 		ProjectFiles.Add(GetIgnoreFileName());
 	}
