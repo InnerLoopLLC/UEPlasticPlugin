@@ -1,4 +1,4 @@
-// Copyright (c) 2016-2022 Codice Software
+// Copyright (c) 2024 Unity Technologies
 
 #pragma once
 
@@ -22,13 +22,17 @@ DECLARE_DELEGATE_RetVal_OneParam(FPlasticSourceControlWorkerRef, FGetPlasticSour
 class FPlasticSourceControlProvider : public ISourceControlProvider
 {
 public:
-	/** Constructor */
+	/** Constructor & destructor */
 	FPlasticSourceControlProvider();
+	~FPlasticSourceControlProvider();
 
 	/* ISourceControlProvider implementation */
 	virtual void Init(bool bForceConnection = true) override;
 	virtual void Close() override;
 	virtual FText GetStatusText() const override;
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3
+	virtual TMap<EStatus, FString> GetStatus() const override; /* NOTE: added in UE5.3, requires the new EStatus */
+#endif
 	virtual bool IsEnabled() const override;
 	virtual bool IsAvailable() const override;
 	virtual const FName& GetName(void) const override;
@@ -47,16 +51,20 @@ public:
 #elif ENGINE_MAJOR_VERSION == 5
 	virtual ECommandResult::Type Execute(const FSourceControlOperationRef& InOperation, FSourceControlChangelistPtr InChangelist, const TArray<FString>& InFiles, EConcurrency::Type InConcurrency = EConcurrency::Synchronous, const FSourceControlOperationComplete& InOperationCompleteDelegate = FSourceControlOperationComplete() ) override;
 #endif
+	virtual bool CanExecuteOperation(const FSourceControlOperationRef& InOperation) const; /* override	NOTE: added in UE5.3 */
 	virtual bool CanCancelOperation(const FSourceControlOperationRef& InOperation) const override;
 	virtual void CancelOperation(const FSourceControlOperationRef& InOperation) override;
 	virtual bool UsesLocalReadOnlyState() const override;
 	virtual bool UsesChangelists() const override;
+	virtual bool UsesUncontrolledChangelists() const; /* override	NOTE: added in UE5.2 */
 	virtual bool UsesCheckout() const override;
 	virtual bool UsesFileRevisions() const; /* override				NOTE: added in UE5.1 */
+	virtual bool UsesSnapshots() const; /* override					NOTE: added in UE5.2 */
+	virtual bool AllowsDiffAgainstDepot() const; /* override		NOTE: added in UE5.2 */
 	virtual TOptional<bool> IsAtLatestRevision() const; /* override	NOTE: added in UE5.1 */
 	virtual TOptional<int> GetNumLocalChanges() const; /* override	NOTE: added in UE5.1 */
 	virtual void Tick() override;
-	virtual TArray< TSharedRef<class ISourceControlLabel> > GetLabels(const FString& InMatchingSpec) const override;
+	virtual TArray<TSharedRef<class ISourceControlLabel>> GetLabels(const FString& InMatchingSpec) const override;
 #if ENGINE_MAJOR_VERSION == 5
 	virtual TArray<FSourceControlChangelistRef> GetChangelists(EStateCacheUsage::Type InStateCacheUsage) override;
 #endif
@@ -107,7 +115,7 @@ public:
 		return RepositoryName;
 	}
 
-	/** Get the Plastic current server URL */
+	/** Get the Plastic current server URL. See also GetCloudOrganization() */
 	inline const FString& GetServerUrl() const
 	{
 		return ServerUrl;
@@ -117,6 +125,16 @@ public:
 	inline const FString& GetBranchName() const
 	{
 		return BranchName;
+	}
+	/** Get the Name of the current selector */
+	inline const FString& GetWorkspaceSelector() const
+	{
+		return WorkspaceSelector;
+	}
+	inline void SetWorkspaceSelector(const FString& InWorkspaceSelector, const FString& InBranchName)
+	{
+		WorkspaceSelector = InWorkspaceSelector;
+		BranchName = InBranchName;
 	}
 
 	/** Get the current Changeset Number */
@@ -131,17 +149,20 @@ public:
 		return (ChangesetNumber == -1);
 	}
 
-	/** Version of the Plastic SCM executable used */
+	/** Version of the Unity Version Control executable used */
 	inline const FSoftwareVersion& GetPlasticScmVersion() const
 	{
 		return PlasticScmVersion;
 	}
 
-	/** Version of the Plastic SCM plugin */
+	/** Version of the Unity Version Control plugin */
 	const FString& GetPluginVersion() const
 	{
 		return PluginVersion;
 	}
+
+	/** Return the name of the cloud organization from the ServerUrl if applicable (MyOrganization@cloud) or an empty string */
+	FString GetCloudOrganization() const;
 
 	/** Set list of error messages that occurred after last Plastic command */
 	void SetLastErrors(const TArray<FString>& InErrors);
@@ -200,6 +221,9 @@ private:
 	/** Indicates if source control integration is available or not. */
 	bool bServerAvailable = false;
 
+	/** Whether Unity Version Control is configured to uses local read-only state to signal whether a file is editable ("SetFilesAsReadOnly" in client.conf) */
+	bool bUsesLocalReadOnlyState = false;
+
 	/** Critical section for thread safety of error messages that occurred after last Plastic command */
 	mutable FCriticalSection LastErrorsCriticalSection;
 
@@ -220,10 +244,17 @@ private:
 	/** Update workspace status on Connect and UpdateStatus operations */
 	void UpdateWorkspaceStatus(const class FPlasticSourceControlCommand& InCommand);
 
-	/** Version of the Plastic SCM executable used */
+	/** Called after a package has been saved to disk, to update the source control cache */
+#if ENGINE_MAJOR_VERSION == 4
+	void HandlePackageSaved(const FString& InPackageFilename, UObject* Outer);
+#else
+	void HandlePackageSaved(const FString& InPackageFilename, UPackage* InPackage, FObjectPostSaveContext InObjectSaveContext);
+#endif
+
+	/** Version of the Unity Version Control executable used */
 	FSoftwareVersion PlasticScmVersion;
 
-	/** Version of the Plastic SCM plugin */
+	/** Version of the Unity Version Control plugin */
 	FString PluginVersion;
 
 	/** Path to the root of the Plastic workspace: can be the GameDir itself, or any parent directory (found by the "Connect" operation) */
@@ -243,6 +274,9 @@ private:
 
 	/** Name of the current branch */
 	FString BranchName;
+
+	/** Name of the object that the workspace is switched to: usually the branch, sometimes a changeset or a label */
+	FString WorkspaceSelector;
 
 	/** Current Changeset Number */
 	int32 ChangesetNumber = 0;

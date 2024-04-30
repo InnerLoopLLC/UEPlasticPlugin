@@ -1,9 +1,10 @@
-// Copyright (c) 2016-2022 Codice Software
+// Copyright (c) 2024 Unity Technologies
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "ISourceControlRevision.h"
+#include "ISourceControlState.h"
 #include "Runtime/Launch/Resources/Version.h"
 
 class FPlasticSourceControlState;
@@ -13,8 +14,8 @@ class FPlasticSourceControlRevision : public ISourceControlRevision
 {
 public:
 	FPlasticSourceControlRevision()
-		: ChangesetNumber(0)
-		, RevisionId(0)
+		: ChangesetNumber(ISourceControlState::INVALID_REVISION)
+		, RevisionId(ISourceControlState::INVALID_REVISION)
 		, Date(0)
 		, FileSize(0)
 	{
@@ -55,6 +56,9 @@ public:
 
 	/** The revision to display to the user: use the changeset number */
 	FString Revision;
+
+	/** The Shelve ID instead of Changeset / Revision for case of shelved files */
+	int32 ShelveId = ISourceControlState::INVALID_REVISION;
 
 	/** The description of this revision */
 	FString Description;

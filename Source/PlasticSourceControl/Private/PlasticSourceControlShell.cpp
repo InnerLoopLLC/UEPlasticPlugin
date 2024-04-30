@@ -1,14 +1,15 @@
-// Copyright (c) 2016-2022 Codice Software
+// Copyright (c) 2024 Unity Technologies
 
 #include "PlasticSourceControlShell.h"
 
+#include "Notification.h"
 #include "PlasticSourceControlModule.h"
 #include "PlasticSourceControlProvider.h"
 
 #include "ISourceControlModule.h"
 
-#include "HAL/PlatformProcess.h"
 #include "Misc/ScopeLock.h"
+#include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
 
 #if PLATFORM_LINUX
@@ -19,6 +20,9 @@
 #include "Windows/WindowsHWrapper.h" // SECURITY_ATTRIBUTES
 #undef GetUserName
 #endif
+
+
+#define LOCTEXT_NAMESPACE "PlasticSourceControl"
 
 
 #if ENGINE_MAJOR_VERSION == 4
@@ -50,6 +54,8 @@ static FORCEINLINE bool CreatePipeWrite(void*& ReadPipe, void*& WritePipe)
 
 namespace PlasticSourceControlShell
 {
+static const TCHAR* ShellCommandResultText = TEXT("CommandResult ");
+static const TCHAR* ShellUserInteractText = TEXT("Select your system [0-1]");
 
 // In/Out Pipes for the 'cm shell' persistent child process
 static void*			ShellOutputPipeRead = nullptr;
@@ -61,6 +67,9 @@ static FCriticalSection	ShellCriticalSection;
 static size_t			ShellCommandCounter = -1;
 static double			ShellCumulatedTime = 0.;
 
+// Whether we already ran a status command to warm up the current shell process
+static bool             bShellIsWarmedUp = false;
+
 // Internal function to cleanup (called under the critical section)
 static void _CleanupBackgroundCommandLineShell()
 {
@@ -70,7 +79,17 @@ static void _CleanupBackgroundCommandLineShell()
 	ShellInputPipeRead = ShellInputPipeWrite = nullptr;
 }
 
-// Internal function to launch the Plastic SCM background 'cm' process in interactive shell mode (called under the critical section)
+static bool _GetShellIsWarmedUp()
+{
+	return bShellIsWarmedUp;
+}
+
+static void _SetShellIsWarmedUp()
+{
+	bShellIsWarmedUp = true;
+}
+
+// Internal function to launch the Unity Version Control background 'cm' process in interactive shell mode (called under the critical section)
 static bool _StartBackgroundPlasticShell(const FString& InPathToPlasticBinary, const FString& InWorkingDirectory)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(PlasticSourceControlShell::_StartBackgroundPlasticShell);
@@ -80,6 +99,8 @@ static bool _StartBackgroundPlasticShell(const FString& InPathToPlasticBinary, c
 	const bool bLaunchDetached = false;				// the new process will NOT have its own window
 	const bool bLaunchHidden = true;				// the new process will be minimized in the task bar
 	const bool bLaunchReallyHidden = bLaunchHidden; // the new process will not have a window or be in the task bar
+
+	bShellIsWarmedUp = false;
 
 	const double StartTimestamp = FPlatformTime::Seconds();
 
@@ -91,10 +112,24 @@ static bool _StartBackgroundPlasticShell(const FString& InPathToPlasticBinary, c
 	verify(FPlatformProcess::CreatePipe(ShellInputPipeRead, ShellInputPipeWrite, true));	// For writing commands to cm shell child process
 #endif
 
+
+#if PLATFORM_WINDOWS
 	ShellProcessHandle = FPlatformProcess::CreateProc(*InPathToPlasticBinary, *FullCommand, bLaunchDetached, bLaunchHidden, bLaunchReallyHidden, nullptr, 0, *InWorkingDirectory, ShellOutputPipeWrite, ShellInputPipeRead);
+#else // PLATFORM_MAC or PLATFORM_LINUX
+	// Update working directory
+	char OriginalWorkingDirectory[PATH_MAX];
+	getcwd(OriginalWorkingDirectory, PATH_MAX);
+	chdir(TCHAR_TO_ANSI(*InWorkingDirectory));
+
+	ShellProcessHandle = FPlatformProcess::CreateProc(*InPathToPlasticBinary, *FullCommand, bLaunchDetached, bLaunchHidden, bLaunchReallyHidden, nullptr, 0, nullptr, ShellOutputPipeWrite, ShellInputPipeRead);
+
+	// Restore working directory
+	chdir(OriginalWorkingDirectory);
+#endif
+
 	if (!ShellProcessHandle.IsValid())
 	{
-		UE_LOG(LogSourceControl, Warning, TEXT("Failed to launch 'cm shell'")); // not a bug, just no Plastic SCM cli found
+		UE_LOG(LogSourceControl, Warning, TEXT("Failed to launch 'cm shell'")); // not a bug, just no Unity Version Control cli found
 		_CleanupBackgroundCommandLineShell();
 	}
 	else
@@ -109,7 +144,8 @@ static bool _StartBackgroundPlasticShell(const FString& InPathToPlasticBinary, c
 }
 
 // Internal function (called under the critical section)
-static void _ExitBackgroundCommandLineShell()
+// bInForceExit: set to true to immediately force close the process without trying to "exit" and wait for it
+static void _ExitBackgroundCommandLineShell(const bool bInForceExit = false)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(PlasticSourceControlShell::_ExitBackgroundCommandLineShell);
 
@@ -117,20 +153,27 @@ static void _ExitBackgroundCommandLineShell()
 	{
 		if (FPlatformProcess::IsProcRunning(ShellProcessHandle))
 		{
-			// Tell the 'cm shell' to exit
-			FPlatformProcess::WritePipe(ShellInputPipeWrite, TEXT("exit"));
-			// And wait up to one second for its termination
-			const double Timeout = 1.0;
-			const double StartTimestamp = FPlatformTime::Seconds();
-			while (FPlatformProcess::IsProcRunning(ShellProcessHandle))
+			if (bInForceExit)
 			{
-				if ((FPlatformTime::Seconds() - StartTimestamp) > Timeout)
+				FPlatformProcess::TerminateProc(ShellProcessHandle);
+			}
+			else
+			{
+				// Tell the 'cm shell' to exit
+				FPlatformProcess::WritePipe(ShellInputPipeWrite, TEXT("exit"));
+				// And wait up to one second for its termination
+				const double Timeout = 1.0;
+				const double StartTimestamp = FPlatformTime::Seconds();
+				while (FPlatformProcess::IsProcRunning(ShellProcessHandle))
 				{
-					UE_LOG(LogSourceControl, Warning, TEXT("ExitBackgroundCommandLineShell: cm shell didn't stop gracefully in %lfs."), Timeout);
-					FPlatformProcess::TerminateProc(ShellProcessHandle);
-					break;
+					if ((FPlatformTime::Seconds() - StartTimestamp) > Timeout)
+					{
+						UE_LOG(LogSourceControl, Warning, TEXT("ExitBackgroundCommandLineShell: cm shell didn't stop gracefully in %lfs."), Timeout);
+						FPlatformProcess::TerminateProc(ShellProcessHandle);
+						break;
+					}
+					FPlatformProcess::Sleep(0.01f);
 				}
-				FPlatformProcess::Sleep(0.01f);
 			}
 		}
 		FPlatformProcess::CloseProc(ShellProcessHandle);
@@ -139,18 +182,19 @@ static void _ExitBackgroundCommandLineShell()
 }
 
 // Internal function (called under the critical section)
-static void _RestartBackgroundCommandLineShell()
+// bInForceExit: set to true to immediately force close the process without trying to "exit" and wait for it
+static void _RestartBackgroundCommandLineShell(const bool bInForceExit = false)
 {
 	const FPlasticSourceControlProvider& Provider = FPlasticSourceControlModule::Get().GetProvider();
 	const FString& PathToPlasticBinary = Provider.AccessSettings().GetBinaryPath();
 	const FString& WorkingDirectory = Provider.GetPathToWorkspaceRoot();
 
-	_ExitBackgroundCommandLineShell();
+	_ExitBackgroundCommandLineShell(bInForceExit);
 	_StartBackgroundPlasticShell(PathToPlasticBinary, WorkingDirectory);
 }
 
 // Internal function (called under the critical section)
-static bool _RunCommandInternal(const FString& InCommand, const TArray<FString>& InParameters, const TArray<FString>& InFiles, const EConcurrency::Type InConcurrency, FString& OutResults, FString& OutErrors)
+static bool _RunCommandInternal(const FString& InCommand, const TArray<FString>& InParameters, const TArray<FString>& InFiles, FString& OutResults, FString& OutErrors)
 {
 	TRACE_CPUPROFILER_EVENT_SCOPE(PlasticSourceControlShell::_RunCommandInternal);
 
@@ -165,7 +209,7 @@ static bool _RunCommandInternal(const FString& InCommand, const TArray<FString>&
 		_RestartBackgroundCommandLineShell();
 	}
 
-	// Start with the Plastic command itself ("status", "log", "checkin"...)
+	// Start with the command itself ("status", "log", "checkin"...)
 	FString FullCommand = InCommand;
 	// Append to the command all parameters, and then finally the files
 	for (const FString& Parameter : InParameters)
@@ -206,7 +250,7 @@ static bool _RunCommandInternal(const FString& InCommand, const TArray<FString>&
 			LastActivity = FPlatformTime::Seconds(); // freshen the timestamp while cm is still actively outputting information
 			OutResults.Append(MoveTemp(Output));
 			// Search the output for the line containing the result code, also indicating the end of the command
-			const uint32 IndexCommandResult = OutResults.Find(TEXT("CommandResult "), ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+			const uint32 IndexCommandResult = OutResults.Find(ShellCommandResultText, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
 			if (INDEX_NONE != IndexCommandResult)
 			{
 				const uint32 IndexEndResult = OutResults.Find(pchDelim, ESearchCase::CaseSensitive, ESearchDir::FromStart, IndexCommandResult + 14);
@@ -220,11 +264,23 @@ static bool _RunCommandInternal(const FString& InCommand, const TArray<FString>&
 					break;
 				}
 			}
+
+			// Search the output for a potential user interaction request (in case the authentication token isn't saved or valid anymore)
+			const uint32 IndexPrompt = OutResults.Find(ShellUserInteractText, ESearchCase::CaseSensitive, ESearchDir::FromEnd);
+			if (INDEX_NONE != IndexPrompt)
+			{
+				const FText ShellRequiresInteractionError(LOCTEXT("SourceControlShell_AskAuthenticate", "Unity Version Control command line requires user interaction.\nSign in using the Unity Version Control client."));
+				FNotification::DisplayFailure(ShellRequiresInteractionError);
+
+				// Restart the shell without waiting, it is forever blocked waiting for user input
+				_RestartBackgroundCommandLineShell(true);
+				break; // and quit the loop
+			}
 		}
 		else if ((FPlatformTime::Seconds() - LastLog > LogInterval) && (PreviousLogLen < OutResults.Len()))
 		{
 			// In case of long running operation, start to print intermediate output from cm shell (like percentage of progress)
-			UE_LOG(LogSourceControl, Log, TEXT("RunCommand: '%s' in progress for %.3lfs...\n%s"), *InCommand, (FPlatformTime::Seconds() - StartTimestamp), *OutResults.Mid(PreviousLogLen));
+			UE_LOG(LogSourceControl, Log, TEXT("RunCommand: '%s' in progress for %.3lfs... (%d chars):\n%s"), *InCommand, (FPlatformTime::Seconds() - StartTimestamp), OutResults.Len() - PreviousLogLen, *OutResults.Mid(PreviousLogLen));
 			PreviousLogLen = OutResults.Len();
 			LastLog = FPlatformTime::Seconds(); // freshen the timestamp of last log
 		}
@@ -232,12 +288,14 @@ static bool _RunCommandInternal(const FString& InCommand, const TArray<FString>&
 		{
 			// In case of timeout, ask the blocking 'cm shell' process to exit, detach from it and restart it immediately
 			UE_LOG(LogSourceControl, Error, TEXT("RunCommand: '%s' TIMEOUT after %.3lfs output (%d chars):\n%s"), *InCommand, (FPlatformTime::Seconds() - StartTimestamp), OutResults.Len(), *OutResults.Mid(PreviousLogLen));
-			_RestartBackgroundCommandLineShell();
+			_RestartBackgroundCommandLineShell(true);
+			// Return output results as error so they get propagated to the Message Log window
+			OutErrors = MoveTemp(OutResults);
 			return false;
 		}
 		else if (IsEngineExitRequested())
 		{
-			UE_LOG(LogSourceControl, Warning, TEXT("RunCommand: '%s' Engine Exit was requested after %.3lfs output (%d chars):\n%s"), *InCommand, (FPlatformTime::Seconds() - StartTimestamp), OutResults.Len(), *OutResults.Mid(PreviousLogLen));
+			UE_LOG(LogSourceControl, Warning, TEXT("RunCommand: '%s' Engine Exit was requested after %.3lfs output (%d chars):\n%s"), *InCommand, (FPlatformTime::Seconds() - StartTimestamp), OutResults.Len() - PreviousLogLen, *OutResults.Mid(PreviousLogLen));
 			_ExitBackgroundCommandLineShell();
 		}
 
@@ -289,7 +347,7 @@ static bool _RunCommandInternal(const FString& InCommand, const TArray<FString>&
 	return bResult;
 }
 
-// Launch the Plastic SCM 'cm shell' process in background for optimized successive commands (thread-safe)
+// Launch the Unity Version Control 'cm shell' process in background for optimized successive commands (thread-safe)
 bool Launch(const FString& InPathToPlasticBinary, const FString& InWorkingDirectory)
 {
 	// Protect public APIs from multi-thread access
@@ -310,13 +368,29 @@ void Terminate()
 	_ExitBackgroundCommandLineShell();
 }
 
+void SetShellIsWarmedUp()
+{
+	FScopeLock Lock(&ShellCriticalSection);
+
+	_SetShellIsWarmedUp();
+}
+
+bool GetShellIsWarmedUp()
+{
+	FScopeLock Lock(&ShellCriticalSection);
+
+	return _GetShellIsWarmedUp();
+}
+
 // Run command and return the raw result
-bool RunCommand(const FString& InCommand, const TArray<FString>& InParameters, const TArray<FString>& InFiles, const EConcurrency::Type InConcurrency, FString& OutResults, FString& OutErrors)
+bool RunCommand(const FString& InCommand, const TArray<FString>& InParameters, const TArray<FString>& InFiles, FString& OutResults, FString& OutErrors)
 {
 	// Protect public APIs from multi-thread access
 	FScopeLock Lock(&ShellCriticalSection);
 
-	return _RunCommandInternal(InCommand, InParameters, InFiles, InConcurrency, OutResults, OutErrors);
+	return _RunCommandInternal(InCommand, InParameters, InFiles, OutResults, OutErrors);
 }
 
 } // namespace PlasticSourceControlShell
+
+#undef LOCTEXT_NAMESPACE

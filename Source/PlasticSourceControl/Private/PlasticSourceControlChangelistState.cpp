@@ -1,4 +1,4 @@
-// Copyright (c) 2016-2022 Codice Software
+// Copyright (c) 2024 Unity Technologies
 
 #if ENGINE_MAJOR_VERSION == 5
 
@@ -37,6 +37,30 @@ const FDateTime& FPlasticSourceControlChangelistState::GetTimeStamp() const
 	return TimeStamp;
 }
 
+#if ENGINE_MINOR_VERSION >= 4
+
+const TArray<FSourceControlStateRef> FPlasticSourceControlChangelistState::GetFilesStates() const
+{
+	return Files;
+}
+
+int32 FPlasticSourceControlChangelistState::GetFilesStatesNum() const
+{
+	return Files.Num();
+}
+
+const TArray<FSourceControlStateRef> FPlasticSourceControlChangelistState::GetShelvedFilesStates() const
+{
+	return ShelvedFiles;
+}
+
+int32 FPlasticSourceControlChangelistState::GetShelvedFilesStatesNum() const
+{
+	return ShelvedFiles.Num();
+}
+
+#else // ENGINE_MINOR_VERSION < 4
+
 const TArray<FSourceControlStateRef>& FPlasticSourceControlChangelistState::GetFilesStates() const
 {
 	return Files;
@@ -46,6 +70,8 @@ const TArray<FSourceControlStateRef>& FPlasticSourceControlChangelistState::GetS
 {
 	return ShelvedFiles;
 }
+
+#endif // ENGINE_MINOR_VERSION
 
 FSourceControlChangelistRef FPlasticSourceControlChangelistState::GetChangelist() const
 {

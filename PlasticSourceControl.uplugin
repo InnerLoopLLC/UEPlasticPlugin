@@ -1,32 +1,23 @@
 {
 	"FileVersion": 3,
-	"Version": 63,
-	"VersionName": "1.6.3",
-	"FriendlyName": "Plastic SCM",
-	"Description": "Plastic source control management",
+	"Version": 101,
+	"VersionName": "1.10.1+dev",
+	"FriendlyName": "Unity Version Control",
+	"Description": "Unity Version Control (formerly Plastic SCM)",
 	"Category": "Source Control",
-	"CreatedBy": "Codice Software.",
-	"CreatedByURL": "http://srombauts.github.com",
-	"DocsURL": "https://github.com/PlasticSCM/UEPlasticPlugin",
+	"CreatedBy": "Unity Technologies",
+	"CreatedByURL": "https://unity.com/solutions/version-control",
+	"DocsURL": "https://docs.unity.com/ugs/en-us/manual/devops/manual/vcs-plugins/unreal-plugin",
 	"MarketplaceURL": "",
-	"SupportURL": "https://www.plasticscm.com/support",
+	"SupportURL": "https://support.unity.com/hc/en-us/requests/new?ticket_form_id=360001051792",
 	"EnabledByDefault": true,
 	"CanContainContent": false,
-	"IsBetaVersion": false,
 	"Installed": false,
 	"Modules": [
 		{
 			"Name": "PlasticSourceControl",
-			"Type": "Editor",
-			"LoadingPhase": "Default",
-			"PlatformAllowList": [
-				"Win64"
-			]
-		},
-		{
-			"Name": "XmlParser2",
-			"Type": "Editor",
-			"LoadingPhase": "Default"
+			"Type": "UncookedOnly",
+			"LoadingPhase": "EarliestPossible"
 		}
 	]
 }

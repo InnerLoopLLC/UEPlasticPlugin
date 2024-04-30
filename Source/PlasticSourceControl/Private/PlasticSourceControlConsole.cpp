@@ -1,10 +1,10 @@
-// Copyright (c) 2016-2022 Codice Software
+// Copyright (c) 2024 Unity Technologies
 
 #include "PlasticSourceControlConsole.h"
 
-#include "ISourceControlModule.h"
-
 #include "PlasticSourceControlUtils.h"
+
+#include "ISourceControlModule.h"
 
 void FPlasticSourceControlConsole::Register()
 {
@@ -12,7 +12,7 @@ void FPlasticSourceControlConsole::Register()
 	{
 		CmConsoleCommand = MakeUnique<FAutoConsoleCommand>(
 			TEXT("cm"),
-			TEXT("PlasticSCM Command Line Interface.\n")
+			TEXT("Unity Version Control (formerly Plastic SCM) Command Line Interface (cm).\n")
 			TEXT("Run any 'cm' command directly from the Unreal Editor Console.\n")
 			TEXT("Type 'cm showcommands' to get a command list."),
 			FConsoleCommandWithArgsDelegate::CreateRaw(this, &FPlasticSourceControlConsole::ExecutePlasticConsoleCommand));
@@ -38,7 +38,7 @@ void FPlasticSourceControlConsole::ExecutePlasticConsoleCommand(const TArray<FSt
 	const FString Command = a_args[0];
 	TArray<FString> Parameters = a_args;
 	Parameters.RemoveAt(0);
-	PlasticSourceControlUtils::RunCommand(Command, Parameters, TArray<FString>(), EConcurrency::Synchronous, Results, Errors);
+	PlasticSourceControlUtils::RunCommand(Command, Parameters, TArray<FString>(), Results, Errors);
 	if (Results.Len() > 200) // RunCommand() already log all command results up to 200 characters (limit to avoid long wall of text like XML)
 	{
 		UE_LOG(LogSourceControl, Log, TEXT("Output:\n%s"), *Results);

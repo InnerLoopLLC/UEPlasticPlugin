@@ -1,4 +1,4 @@
-// Copyright (c) 2016-2022 Codice Software
+// Copyright (c) 2024 Unity Technologies
 
 using UnrealBuildTool;
 
@@ -7,6 +7,9 @@ public class PlasticSourceControl : ModuleRules
 	public PlasticSourceControl(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+
+		// Note: from UE5.4 onward, replaced by IWYUSupport = IWYUSupport.Full;
+		bEnforceIWYU = true;
 
 		PrivateDependencyModuleNames.AddRange(
 			new string[]
@@ -20,16 +23,16 @@ public class PlasticSourceControl : ModuleRules
 				"UnrealEd",
 				"LevelEditor",
 				"SourceControl",
-				"XmlParser2",
+				"XmlParser",
 				"Projects",
 				"AssetRegistry",
 				"DeveloperSettings",
+				"ToolMenus",
+				"ContentBrowser",
 			}
 		);
 
-		if (Target.Version.MajorVersion == 5)
-		{
-			PrivateDependencyModuleNames.Add("ToolMenus");
-		}
+		// NOTE: this produce warnings in SListView Engine code in UE4.27
+		UnsafeTypeCastWarningLevel = WarningLevel.Warning;
 	}
 }

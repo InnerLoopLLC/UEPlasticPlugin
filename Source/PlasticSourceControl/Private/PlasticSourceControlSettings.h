@@ -1,4 +1,4 @@
-// Copyright (c) 2016-2022 Codice Software
+// Copyright (c) 2024 Unity Technologies
 
 #pragma once
 
@@ -18,6 +18,10 @@ public:
 	/** Enable Update status to call "history" to detect recent changesets on other branches (can be slow). */
 	bool GetUpdateStatusOtherBranches() const;
 	void SetUpdateStatusOtherBranches(const bool bInUpdateStatusOtherBranches);
+
+	/** Enable the "View Changes" (changelists) window to also display locally Changed and Private files (can be slow). */
+	bool GetViewLocalChanges() const;
+	void SetViewLocalChanges(const bool bInViewLocalChanges);
 
 	/** Enable LogSourceControl Verbose logs */
 	bool GetEnableVerboseLogs() const;
@@ -45,6 +49,9 @@ private:
 	/** Enable Update status to call "history" to detect recent changesets on other branches (can be slow). */
 	bool bUpdateStatusOtherBranches = false;
 
-	/** Override LogSourceControl verbosity level to Verbose, and back, if not already VeryVerbose */
+	/** Enable the "View Changes" (changelists) window to also display Private and locally Changed assets (even though they cannot be moved to other changelists). */
+	bool bViewLocalChanges = true;
+
+	/** Override LogSourceControl verbosity level to Verbose, and back, if not already VeryVerbose. */
 	bool bEnableVerboseLogs = false;
 };

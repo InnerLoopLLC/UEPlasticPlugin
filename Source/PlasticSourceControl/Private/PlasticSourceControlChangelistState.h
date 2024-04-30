@@ -1,4 +1,4 @@
-// Copyright (c) 2016-2022 Codice Software
+// Copyright (c) 2024 Unity Technologies
 
 #pragma once
 
@@ -8,6 +8,7 @@
 #if ENGINE_MAJOR_VERSION == 5
 
 #include "ISourceControlChangelistState.h"
+#include "ISourceControlState.h"
 
 #include "PlasticSourceControlChangelist.h"
 
@@ -65,9 +66,17 @@ public:
 	 */
 	virtual const FDateTime& GetTimeStamp() const override;
 
+#if ENGINE_MINOR_VERSION >= 4
+	virtual const TArray<FSourceControlStateRef> GetFilesStates() const override;
+	virtual int32 GetFilesStatesNum() const override;
+
+	virtual const TArray<FSourceControlStateRef> GetShelvedFilesStates() const override;
+	virtual int32 GetShelvedFilesStatesNum() const override;
+#else
 	virtual const TArray<FSourceControlStateRef>& GetFilesStates() const override;
 
 	virtual const TArray<FSourceControlStateRef>& GetShelvedFilesStates() const override;
+#endif
 
 	virtual FSourceControlChangelistRef GetChangelist() const override;
 
@@ -78,7 +87,10 @@ public:
 
 	TArray<FSourceControlStateRef> Files;
 
-	TArray<FSourceControlStateRef> ShelvedFiles; // TODO: shelves are not yet implemented
+	int32 ShelveId = ISourceControlState::INVALID_REVISION;
+	FDateTime ShelveDate;
+
+	TArray<FSourceControlStateRef> ShelvedFiles;
 
 	/** The timestamp of the last update */
 	FDateTime TimeStamp;

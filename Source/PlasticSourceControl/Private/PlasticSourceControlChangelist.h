@@ -1,4 +1,4 @@
-// Copyright (c) 2016-2022 Codice Software
+// Copyright (c) 2024 Unity Technologies
 
 #pragma once
 
@@ -10,7 +10,7 @@
 #include "ISourceControlChangelist.h"
 
 /**
- * Unique Identifier of a changelist under source control: a "name" in Plastic SCM
+ * Unique Identifier of a changelist under source control: a "name" in Unity Version Control
  */
 class FPlasticSourceControlChangelist : public ISourceControlChangelist
 {
@@ -22,8 +22,6 @@ public:
 		, bInitialized(bInInitialized)
 	{
 	}
-
-	FPlasticSourceControlChangelist(const FPlasticSourceControlChangelist& InOther) = default;
 
 #if ENGINE_MINOR_VERSION >= 1
 	virtual bool CanDelete() const override
@@ -42,7 +40,7 @@ public:
 		return ChangelistName != InOther.ChangelistName;
 	}
 
-	bool IsDefault() const
+	virtual bool IsDefault() const /* override NOTE: added in UE5.3 */
 	{
 		return ChangelistName == DefaultChangelist.ChangelistName;
 	}
@@ -69,6 +67,11 @@ public:
 	}
 
 	FString GetName() const
+	{
+		return ChangelistName;
+	}
+
+	virtual FString GetIdentifier() const /* override NOTE: added in UE5.3 */
 	{
 		return ChangelistName;
 	}

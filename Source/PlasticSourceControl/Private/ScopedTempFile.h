@@ -1,4 +1,4 @@
-// Copyright (c) 2016-2022 Codice Software
+// Copyright (c) 2024 Unity Technologies
 
 #pragma once
 
@@ -10,6 +10,9 @@
 class FScopedTempFile
 {
 public:
+	/** Default constructor - only hold a temp filename */
+	FScopedTempFile();
+
 	/** Constructor - open & write string to temp file */
 	explicit FScopedTempFile(const FString& InText);
 	explicit FScopedTempFile(const FText& InText);
